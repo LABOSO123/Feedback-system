@@ -1,6 +1,16 @@
 const jwt = require('jsonwebtoken');
 const pool = require('../database/db');
 
+/**
+ * Authentication Middleware
+ * 
+ * Verifies JWT token from Authorization header and attaches user to request object.
+ * 
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next middleware function
+ * @returns {Promise<void>}
+ */
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.header('Authorization');
@@ -51,6 +61,22 @@ const authenticate = async (req, res, next) => {
   }
 };
 
+/**
+ * Authorization Middleware Factory
+ * 
+ * Creates middleware that checks if the authenticated user has one of the required roles.
+ * 
+ * @param {...string} roles - Allowed user roles (e.g., 'admin', 'business', 'data_science')
+ * @returns {Function} Express middleware function
+ * 
+ * @example
+ * // Only allow admin users
+ * router.get('/admin-only', authenticate, authorize('admin'), handler);
+ * 
+ * @example
+ * // Allow both admin and business users
+ * router.get('/shared', authenticate, authorize('admin', 'business'), handler);
+ */
 const authorize = (...roles) => {
   return (req, res, next) => {
     if (!req.user) {

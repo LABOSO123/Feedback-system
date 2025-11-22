@@ -1,6 +1,29 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+/**
+ * Database Connection Pool
+ * 
+ * Creates and manages a PostgreSQL connection pool with configuration
+ * from environment variables. Supports both individual connection parameters
+ * and connection strings (for cloud providers).
+ * 
+ * Configuration options:
+ * - DB_HOST: Database host (default: localhost)
+ * - DB_PORT: Database port (default: 5433)
+ * - DB_NAME: Database name (default: feedback_system)
+ * - DB_USER: Database user (default: postgres)
+ * - DB_PASSWORD: Database password
+ * - DB_SSL: Enable SSL (true/false)
+ * - DATABASE_URL: Full connection string (overrides individual settings)
+ * - DB_POOL_MAX: Maximum pool size (default: 20)
+ * - DB_POOL_IDLE_TIMEOUT: Idle timeout in ms (default: 30000)
+ * - DB_POOL_CONNECTION_TIMEOUT: Connection timeout in ms (default: 2000)
+ * 
+ * @module database/db
+ * @type {Pool}
+ */
+
 // Build connection configuration
 const dbConfig = {
   host: process.env.DB_HOST || 'localhost',
