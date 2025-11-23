@@ -254,12 +254,13 @@ const BusinessThreads = () => {
                     />
                     <button
                       type="submit"
-                    disabled={submitting || !newComment.trim()}
-                    className="bg-kra-red-600 text-white px-4 py-2 rounded-md hover:bg-kra-red-700 disabled:opacity-50 font-medium"
-                  >
-                    {submitting ? 'Posting...' : 'Reply'}
-                  </button>
-                </form>
+                      disabled={submitting || !newComment.trim()}
+                      className="bg-kra-red-600 text-white px-4 py-2 rounded-md hover:bg-kra-red-700 disabled:opacity-50 font-medium"
+                    >
+                      {submitting ? 'Posting...' : 'Reply'}
+                    </button>
+                  </form>
+                </div>
               )}
             </div>
           </div>

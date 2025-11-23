@@ -104,33 +104,48 @@ router.post('/', authenticate, authorize('data_science'), async (req, res) => {
       return res.status(400).json({ error: 'Invalid request type' });
     }
 
+    // Validate user has team_id if team_id is being set
+    const finalTeamId = team_id || req.user.team_id || null;
+
     const result = await pool.query(
       'INSERT INTO admin_requests (submitted_by_user_id, request_type, dashboard_id, team_id, subject, description) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [req.user.id, request_type, dashboard_id || null, team_id || req.user.team_id || null, subject, description]
+      [req.user.id, request_type, dashboard_id || null, finalTeamId, subject, description]
     );
 
     // Create notification for all admins
-    const admins = await pool.query('SELECT id FROM users WHERE role = $1', ['admin']);
-    const io = req.app.get('io');
-    admins.rows.forEach(admin => {
-      io.to(`user-${admin.id}`).emit('new-admin-request', {
-        request_id: result.rows[0].id,
-        subject: subject
-      });
-    });
+    try {
+      const admins = await pool.query('SELECT id FROM users WHERE role = $1', ['admin']);
+      const io = req.app.get('io');
+      
+      if (io && admins.rows.length > 0) {
+        admins.rows.forEach(admin => {
+          io.to(`user-${admin.id}`).emit('new-admin-request', {
+            request_id: result.rows[0].id,
+            subject: subject
+          });
+        });
 
-    // Create database notifications
-    for (const admin of admins.rows) {
-      await pool.query(
-        'INSERT INTO notifications (user_id, type, message) VALUES ($1, $2, $3)',
-        [admin.id, 'admin_request', `New admin request: ${subject} from ${req.user.name}`]
-      );
+        // Create database notifications
+        for (const admin of admins.rows) {
+          await pool.query(
+            'INSERT INTO notifications (user_id, type, message) VALUES ($1, $2, $3)',
+            [admin.id, 'admin_request', `New admin request: ${subject} from ${req.user.name}`]
+          );
+        }
+      }
+    } catch (notifError) {
+      // Log notification error but don't fail the request
+      console.error('Error creating notifications for admin request:', notifError);
     }
 
     res.status(201).json({ request: result.rows[0] });
   } catch (error) {
     console.error('Create admin request error:', error);
-    res.status(500).json({ error: 'Server error' });
+    console.error('Error details:', error.message, error.stack);
+    res.status(500).json({ 
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 

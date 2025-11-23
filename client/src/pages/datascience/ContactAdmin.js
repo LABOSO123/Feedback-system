@@ -95,12 +95,17 @@ const ContactAdmin = () => {
       }, 3000);
     } catch (error) {
       console.error('Submit request error:', error);
+      console.error('Error response:', error.response);
       if (error.response?.status === 401) {
         setError('Your session has expired. Please log in again.');
         // Redirect to login after a moment
         setTimeout(() => {
           window.location.href = '/login';
         }, 2000);
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to submit admin requests. Only data science users can submit requests.');
+      } else if (error.response?.status === 500) {
+        setError(error.response?.data?.details || error.response?.data?.error || 'Server error. Please try again or contact support.');
       } else {
         setError(error.response?.data?.error || error.message || 'Failed to submit request. Please try again.');
       }
