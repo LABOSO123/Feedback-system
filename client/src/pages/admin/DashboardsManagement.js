@@ -15,7 +15,8 @@ const DashboardsManagement = () => {
   const [formData, setFormData] = useState({
     dashboard_name: '',
     description: '',
-    assigned_team_id: ''
+    assigned_team_id: '',
+    charts: [] // Array to store charts being added during creation/editing
   });
   const [chartFormData, setChartFormData] = useState({
     chart_name: '',
@@ -113,27 +114,122 @@ const DashboardsManagement = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      let dashboardId;
+      
       if (editing) {
-        await axios.put(`${API_URL}/dashboards/${editing}`, formData);
+        // Update existing dashboard
+        const response = await axios.put(`${API_URL}/dashboards/${editing}`, {
+          dashboard_name: formData.dashboard_name,
+          description: formData.description,
+          assigned_team_id: formData.assigned_team_id
+        });
+        dashboardId = editing;
+
+        // Get existing charts for this dashboard to compare
+        const existingChartsResponse = await axios.get(`${API_URL}/charts/dashboard/${dashboardId}`);
+        const existingCharts = existingChartsResponse.data.charts;
+        const existingChartIds = existingCharts.map(c => c.id);
+        const currentChartIds = formData.charts.filter(c => c.id).map(c => c.id);
+
+        // Delete charts that were removed
+        const chartsToDelete = existingChartIds.filter(id => !currentChartIds.includes(id));
+        for (const chartId of chartsToDelete) {
+          await axios.delete(`${API_URL}/charts/${chartId}`);
+        }
+
+        // Update or create charts
+        for (const chart of formData.charts) {
+          if (chart.chart_name && chart.chart_name.trim()) {
+            if (chart.id) {
+              // Update existing chart
+              await axios.put(`${API_URL}/charts/${chart.id}`, {
+                chart_name: chart.chart_name.trim(),
+                description: chart.description?.trim() || null
+              });
+            } else {
+              // Create new chart
+              await axios.post(`${API_URL}/charts`, {
+                dashboard_id: dashboardId,
+                chart_name: chart.chart_name.trim(),
+                description: chart.description?.trim() || null
+              });
+            }
+          }
+        }
       } else {
-        await axios.post(`${API_URL}/dashboards`, formData);
+        // Create new dashboard
+        const response = await axios.post(`${API_URL}/dashboards`, {
+          dashboard_name: formData.dashboard_name,
+          description: formData.description,
+          assigned_team_id: formData.assigned_team_id
+        });
+        dashboardId = response.data.dashboard.id;
+
+        // Add charts if any were provided
+        if (formData.charts && formData.charts.length > 0) {
+          for (const chart of formData.charts) {
+            if (chart.chart_name && chart.chart_name.trim()) {
+              await axios.post(`${API_URL}/charts`, {
+                dashboard_id: dashboardId,
+                chart_name: chart.chart_name.trim(),
+                description: chart.description?.trim() || null
+              });
+            }
+          }
+        }
       }
+
       setShowForm(false);
       setEditing(null);
-      setFormData({ dashboard_name: '', description: '', assigned_team_id: '' });
+      setFormData({ dashboard_name: '', description: '', assigned_team_id: '', charts: [] });
       fetchDashboards();
+      
+      // If we just created a dashboard, select it to show the charts
+      if (!editing && dashboardId) {
+        setTimeout(async () => {
+          try {
+            const updatedDashboards = await axios.get(`${API_URL}/dashboards`);
+            const newDashboard = updatedDashboards.data.dashboards.find(d => d.id === dashboardId);
+            if (newDashboard) {
+              handleSelectDashboard(newDashboard);
+            }
+          } catch (err) {
+            console.error('Error selecting new dashboard:', err);
+          }
+        }, 500);
+      } else if (editing && dashboardId) {
+        // Refresh charts if editing
+        fetchCharts(dashboardId);
+      }
     } catch (error) {
       alert(error.response?.data?.error || 'Failed to save dashboard');
     }
   };
 
-  const handleEdit = (dashboard) => {
+  const handleEdit = async (dashboard) => {
     setEditing(dashboard.id);
     setFormData({
       dashboard_name: dashboard.dashboard_name,
       description: dashboard.description || '',
-      assigned_team_id: dashboard.assigned_team_id || ''
+      assigned_team_id: dashboard.assigned_team_id || '',
+      charts: [] // Start with empty charts array for editing
     });
+    
+    // Fetch existing charts for this dashboard
+    try {
+      const chartsResponse = await axios.get(`${API_URL}/charts/dashboard/${dashboard.id}`);
+      setFormData(prev => ({
+        ...prev,
+        charts: chartsResponse.data.charts.map(chart => ({
+          id: chart.id, // Keep existing chart ID
+          chart_name: chart.chart_name,
+          description: chart.description || ''
+        }))
+      }));
+    } catch (error) {
+      console.error('Error fetching charts:', error);
+    }
+    
     setShowForm(true);
   };
 
@@ -157,7 +253,7 @@ const DashboardsManagement = () => {
           onClick={() => {
             setShowForm(true);
             setEditing(null);
-            setFormData({ dashboard_name: '', description: '', assigned_team_id: '' });
+            setFormData({ dashboard_name: '', description: '', assigned_team_id: '', charts: [] });
           }}
           className="bg-kra-red-600 text-white px-4 py-2 rounded-md hover:bg-kra-red-700 font-medium"
         >
@@ -212,19 +308,100 @@ const DashboardsManagement = () => {
                   ))}
                 </select>
               </div>
-              <div className="flex space-x-2">
+              {/* Charts/Visuals Section */}
+              <div className="border-t border-gray-200 pt-4 mt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">
+                      Charts/Visuals
+                    </label>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Add charts/visuals to this dashboard {editing ? '(existing charts shown below)' : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        charts: [...(formData.charts || []), { chart_name: '', description: '' }]
+                      });
+                    }}
+                    className="text-sm text-kra-red-600 hover:text-kra-red-700 font-medium whitespace-nowrap"
+                  >
+                    + Add Chart/Visual
+                  </button>
+                </div>
+                
+                {formData.charts && formData.charts.length > 0 && (
+                  <div className="space-y-3 max-h-64 overflow-y-auto">
+                    {formData.charts.map((chart, index) => (
+                      <div key={chart.id || index} className="bg-gray-50 p-3 rounded border border-gray-200">
+                        <div className="flex items-start justify-between mb-2">
+                          <div>
+                            <span className="text-xs font-medium text-gray-600">
+                              Chart {index + 1}
+                              {chart.id && <span className="text-gray-400 ml-1">(existing)</span>}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newCharts = formData.charts.filter((_, i) => i !== index);
+                              setFormData({ ...formData, charts: newCharts });
+                            }}
+                            className="text-xs text-red-600 hover:text-red-700 font-medium"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            placeholder="Chart/Visual Name *"
+                            value={chart.chart_name || ''}
+                            onChange={(e) => {
+                              const newCharts = [...formData.charts];
+                              newCharts[index] = { ...newCharts[index], chart_name: e.target.value };
+                              setFormData({ ...formData, charts: newCharts });
+                            }}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-kra-red-500 focus:border-kra-red-500 text-sm"
+                          />
+                          <textarea
+                            placeholder="Description (optional)"
+                            value={chart.description || ''}
+                            onChange={(e) => {
+                              const newCharts = [...formData.charts];
+                              newCharts[index] = { ...newCharts[index], description: e.target.value };
+                              setFormData({ ...formData, charts: newCharts });
+                            }}
+                            rows={2}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-kra-red-500 focus:border-kra-red-500 text-sm"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                
+                {(!formData.charts || formData.charts.length === 0) && (
+                  <p className="text-sm text-gray-500 italic">No charts/visuals added yet. Click "+ Add Chart/Visual" to add one.</p>
+                )}
+              </div>
+
+              <div className="flex space-x-2 pt-4 border-t border-gray-200">
                 <button
                   type="submit"
                   className="bg-kra-red-600 text-white px-4 py-2 rounded-md hover:bg-kra-red-700 font-medium"
                 >
-                  {editing ? 'Update' : 'Create'}
+                  {editing ? 'Update Dashboard' : 'Create Dashboard'}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
                     setShowForm(false);
                     setEditing(null);
-                    setFormData({ dashboard_name: '', description: '', assigned_team_id: '' });
+                    setFormData({ dashboard_name: '', description: '', assigned_team_id: '', charts: [] });
                   }}
                   className="bg-gray-200 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-300"
                 >
