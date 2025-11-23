@@ -157,7 +157,7 @@ const Register = () => {
               <p className="mt-1 text-xs text-gray-500">
                 {formData.role === 'data_science' && 'Note: Admin will assign you to a team after registration'}
               </p>
-            </div>
+              </div>
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                 Password

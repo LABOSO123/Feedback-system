@@ -272,6 +272,9 @@ router.post('/', authenticate, authorize('business'), async (req, res) => {
 
     const issue = result.rows[0];
 
+    // Priority is calculated dynamically based on thread count, no need to update here
+    // The priority will be calculated in the dashboard/chart queries
+
     // Create notification for assigned team if exists
     if (issue.assigned_team_id) {
       const io = req.app.get('io');

@@ -264,6 +264,8 @@ const BusinessHome = () => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-kra-red-500 focus:border-kra-red-500"
               >
                 <option value="dashboard_name">Name (A-Z)</option>
+                <option value="priority">Priority (High to Low)</option>
+                <option value="thread_count">Thread Count</option>
                 <option value="updated_at">Date Modified</option>
                 <option value="created_at">Date Created</option>
               </select>
@@ -296,14 +298,27 @@ const BusinessHome = () => {
             {dashboard.description && (
               <p className="text-sm text-gray-600 mb-3 line-clamp-2">{dashboard.description}</p>
             )}
-            <div className="flex items-center justify-between text-sm text-gray-500">
+            <div className="flex items-center justify-between text-sm text-gray-500 mb-2">
               <span>{dashboard.thread_count || 0} thread(s)</span>
-              {dashboard.team_name && (
-                <span className="bg-kra-red-50 text-kra-red-800 px-2 py-1 rounded text-xs border border-kra-red-200">
-                  {dashboard.team_name}
+              {dashboard.priority && dashboard.priority !== 'none' && (
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  dashboard.priority === 'high' 
+                    ? 'bg-red-100 text-red-800 border border-red-300' 
+                    : dashboard.priority === 'medium'
+                    ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                    : 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+                }`}>
+                  {dashboard.priority === 'high' ? '🔴 High Priority' : dashboard.priority === 'medium' ? '🟠 Medium Priority' : '🟡 Low Priority'}
                 </span>
               )}
             </div>
+            {dashboard.team_name && (
+              <div className="flex items-center justify-between">
+                <span className="bg-kra-red-50 text-kra-red-800 px-2 py-1 rounded text-xs border border-kra-red-200">
+                  {dashboard.team_name}
+                </span>
+              </div>
+            )}
             {dashboard.updated_at && (
               <p className="text-xs text-gray-400 mt-2">
                 Updated: {format(new Date(dashboard.updated_at), 'MMM d, yyyy')}

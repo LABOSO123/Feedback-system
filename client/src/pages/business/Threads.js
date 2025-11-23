@@ -236,17 +236,24 @@ const BusinessThreads = () => {
                 )}
               </div>
 
-              {selectedIssue.status !== 'complete' && selectedIssue.submitted_by_user_id === user.id && (
-                <form onSubmit={handleSubmitComment}>
-                  <textarea
-                    value={newComment}
-                    onChange={(e) => setNewComment(e.target.value)}
-                    rows={3}
-                    placeholder="Add a reply..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-kra-red-500 focus:border-kra-red-500 mb-2"
-                  />
-                  <button
-                    type="submit"
+              {selectedIssue.submitted_by_user_id === user.id && (
+                <div>
+                  {selectedIssue.status === 'complete' && (
+                    <div className="mb-3 p-3 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700">
+                      <p className="font-medium mb-1">ℹ️ Thread Complete</p>
+                      <p>This thread has been marked as complete, but you can still add follow-up comments or questions below.</p>
+                    </div>
+                  )}
+                  <form onSubmit={handleSubmitComment}>
+                    <textarea
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      rows={3}
+                      placeholder={selectedIssue.status === 'complete' ? "Add a follow-up comment or question..." : "Add a reply..."}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-kra-red-500 focus:border-kra-red-500 mb-2"
+                    />
+                    <button
+                      type="submit"
                     disabled={submitting || !newComment.trim()}
                     className="bg-kra-red-600 text-white px-4 py-2 rounded-md hover:bg-kra-red-700 disabled:opacity-50 font-medium"
                   >

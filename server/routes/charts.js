@@ -8,7 +8,19 @@ const router = express.Router();
 router.get('/dashboard/:dashboardId', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT * FROM charts WHERE dashboard_id = $1 ORDER BY chart_name ASC',
+      `SELECT c.*,
+        COUNT(DISTINCT i.id) as thread_count,
+        CASE 
+          WHEN COUNT(DISTINCT i.id) >= 10 THEN 'high'
+          WHEN COUNT(DISTINCT i.id) >= 5 THEN 'medium'
+          WHEN COUNT(DISTINCT i.id) >= 1 THEN 'low'
+          ELSE 'none'
+        END as priority
+       FROM charts c
+       LEFT JOIN issues i ON c.id = i.chart_id
+       WHERE c.dashboard_id = $1
+       GROUP BY c.id
+       ORDER BY c.chart_name ASC`,
       [req.params.dashboardId]
     );
 

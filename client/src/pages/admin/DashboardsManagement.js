@@ -36,6 +36,9 @@ const DashboardsManagement = () => {
       setDashboards(response.data.dashboards);
     } catch (error) {
       console.error('Error fetching dashboards:', error);
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        console.error('Authentication error - please log in again');
+      }
     } finally {
       setLoading(false);
     }
@@ -47,6 +50,9 @@ const DashboardsManagement = () => {
       setTeams(response.data.teams);
     } catch (error) {
       console.error('Error fetching teams:', error);
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        console.error('Authentication error - please log in again');
+      }
     }
   };
 
@@ -56,6 +62,9 @@ const DashboardsManagement = () => {
       setCharts(response.data.charts);
     } catch (error) {
       console.error('Error fetching charts:', error);
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        console.error('Authentication error - token may be missing or invalid');
+      }
     }
   };
 
@@ -84,7 +93,15 @@ const DashboardsManagement = () => {
         fetchCharts(selectedDashboard);
       }
     } catch (error) {
-      alert(error.response?.data?.error || 'Failed to save chart');
+      if (error.response?.status === 403) {
+        alert('Insufficient permissions. Your token may have expired. Please refresh the page.');
+        console.error('403 Error:', error.response?.data);
+      } else if (error.response?.status === 401) {
+        alert('Your session has expired. Please log in again.');
+        window.location.href = '/login';
+      } else {
+        alert(error.response?.data?.error || 'Failed to save chart');
+      }
     }
   };
 
@@ -107,7 +124,14 @@ const DashboardsManagement = () => {
         fetchCharts(selectedDashboard);
       }
     } catch (error) {
-      alert(error.response?.data?.error || 'Failed to delete chart');
+      if (error.response?.status === 403) {
+        alert('Insufficient permissions. Your token may have expired. Please refresh the page.');
+      } else if (error.response?.status === 401) {
+        alert('Your session has expired. Please log in again.');
+        window.location.href = '/login';
+      } else {
+        alert(error.response?.data?.error || 'Failed to delete chart');
+      }
     }
   };
 
@@ -202,7 +226,15 @@ const DashboardsManagement = () => {
         fetchCharts(dashboardId);
       }
     } catch (error) {
-      alert(error.response?.data?.error || 'Failed to save dashboard');
+      if (error.response?.status === 403) {
+        alert('Insufficient permissions. Your token may have expired. Please refresh the page.');
+        console.error('403 Error:', error.response?.data);
+      } else if (error.response?.status === 401) {
+        alert('Your session has expired. Please log in again.');
+        window.location.href = '/login';
+      } else {
+        alert(error.response?.data?.error || 'Failed to save dashboard');
+      }
     }
   };
 
@@ -241,7 +273,14 @@ const DashboardsManagement = () => {
       await axios.delete(`${API_URL}/dashboards/${id}`);
       fetchDashboards();
     } catch (error) {
-      alert(error.response?.data?.error || 'Failed to delete dashboard');
+      if (error.response?.status === 403) {
+        alert('Insufficient permissions. Your token may have expired. Please refresh the page.');
+      } else if (error.response?.status === 401) {
+        alert('Your session has expired. Please log in again.');
+        window.location.href = '/login';
+      } else {
+        alert(error.response?.data?.error || 'Failed to delete dashboard');
+      }
     }
   };
 

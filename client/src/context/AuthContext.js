@@ -19,15 +19,10 @@ export const AuthProvider = ({ children }) => {
 
   // Set up axios interceptor to always include token
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      fetchUser();
-    } else {
-      setLoading(false);
-    }
-
-    // Interceptor to add token to every request
+    // Set up interceptor ONCE - it will persist for the entire app session
+    // This ensures token is ALWAYS attached to every request automatically
+    
+    // Interceptor to add token to every request - reads from localStorage on EVERY request
     const requestInterceptor = axios.interceptors.request.use(
       (config) => {
         const token = localStorage.getItem('token');
@@ -41,10 +36,12 @@ export const AuthProvider = ({ children }) => {
       }
     );
 
-    // Interceptor to handle 401 errors (token expired/invalid)
+    // Interceptor to handle 401 errors (token expired/invalid) - but NOT 403
     const responseInterceptor = axios.interceptors.response.use(
       (response) => response,
       (error) => {
+        // Only handle 401 (unauthorized), NOT 403 (forbidden)
+        // 403 means user is authenticated but doesn't have permission
         if (error.response?.status === 401) {
           // Token is invalid or expired
           localStorage.removeItem('token');
@@ -60,9 +57,21 @@ export const AuthProvider = ({ children }) => {
       }
     );
 
+    // Check if user is already logged in
+    const token = localStorage.getItem('token');
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      fetchUser();
+    } else {
+      setLoading(false);
+    }
+
+    // Cleanup: Don't remove interceptors - they should persist for the entire app session
+    // Only remove them if component unmounts (which shouldn't happen for AuthProvider)
     return () => {
-      axios.interceptors.request.eject(requestInterceptor);
-      axios.interceptors.response.eject(responseInterceptor);
+      // Only clean up if really needed - but we want interceptors to persist
+      // axios.interceptors.request.eject(requestInterceptor);
+      // axios.interceptors.response.eject(responseInterceptor);
     };
   }, []);
 

@@ -8,7 +8,21 @@ const router = express.Router();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { team_id, search, sort_by = 'dashboard_name' } = req.query;
-    let query = 'SELECT d.*, t.name as team_name FROM dashboards d LEFT JOIN teams t ON d.assigned_team_id = t.id WHERE 1=1';
+    let query = `
+      SELECT d.*, 
+        t.name as team_name,
+        COUNT(DISTINCT i.id) as thread_count,
+        CASE 
+          WHEN COUNT(DISTINCT i.id) >= 10 THEN 'high'
+          WHEN COUNT(DISTINCT i.id) >= 5 THEN 'medium'
+          WHEN COUNT(DISTINCT i.id) >= 1 THEN 'low'
+          ELSE 'none'
+        END as priority
+      FROM dashboards d 
+      LEFT JOIN teams t ON d.assigned_team_id = t.id
+      LEFT JOIN issues i ON d.id = i.dashboard_id
+      WHERE 1=1
+    `;
     const params = [];
     let paramCount = 1;
 
@@ -24,10 +38,26 @@ router.get('/', authenticate, async (req, res) => {
       params.push(`%${search}%`, `%${search}%`);
     }
 
+    query += ` GROUP BY d.id, t.name`;
+
     // Sort
-    const validSorts = ['dashboard_name', 'created_at', 'updated_at'];
-    const sortColumn = validSorts.includes(sort_by) ? sort_by : 'dashboard_name';
-    query += ` ORDER BY ${sortColumn} ASC`;
+    const validSorts = ['dashboard_name', 'created_at', 'updated_at', 'priority', 'thread_count'];
+    let sortColumn = 'dashboard_name';
+    if (sort_by === 'priority') {
+      sortColumn = `CASE 
+        WHEN COUNT(DISTINCT i.id) >= 10 THEN 1
+        WHEN COUNT(DISTINCT i.id) >= 5 THEN 2
+        WHEN COUNT(DISTINCT i.id) >= 1 THEN 3
+        ELSE 4
+      END`;
+    } else if (sort_by === 'thread_count') {
+      sortColumn = 'COUNT(DISTINCT i.id)';
+    } else if (validSorts.includes(sort_by)) {
+      sortColumn = `d.${sort_by}`;
+    }
+    
+    const sortOrder = (sort_by === 'priority' || sort_by === 'thread_count') ? 'ASC' : 'ASC';
+    query += ` ORDER BY ${sortColumn} ${sortOrder}`;
 
     const result = await pool.query(query, params);
     res.json({ dashboards: result.rows });
@@ -41,11 +71,22 @@ router.get('/', authenticate, async (req, res) => {
 router.get('/:id', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT d.*, t.name as team_name, u.name as created_by_name 
+      `SELECT d.*, 
+        t.name as team_name, 
+        u.name as created_by_name,
+        COUNT(DISTINCT i.id) as thread_count,
+        CASE 
+          WHEN COUNT(DISTINCT i.id) >= 10 THEN 'high'
+          WHEN COUNT(DISTINCT i.id) >= 5 THEN 'medium'
+          WHEN COUNT(DISTINCT i.id) >= 1 THEN 'low'
+          ELSE 'none'
+        END as priority
        FROM dashboards d 
        LEFT JOIN teams t ON d.assigned_team_id = t.id 
-       LEFT JOIN users u ON d.created_by_admin_id = u.id 
-       WHERE d.id = $1`,
+       LEFT JOIN users u ON d.created_by_admin_id = u.id
+       LEFT JOIN issues i ON d.id = i.dashboard_id
+       WHERE d.id = $1
+       GROUP BY d.id, t.name, u.name`,
       [req.params.id]
     );
 
@@ -124,7 +165,15 @@ router.get('/with-threads/count', authenticate, async (req, res) => {
     const { team_id, search, sort_by = 'dashboard_name' } = req.query;
     
     let query = `
-      SELECT d.*, t.name as team_name, COUNT(DISTINCT i.id) as thread_count
+      SELECT d.*, 
+        t.name as team_name, 
+        COUNT(DISTINCT i.id) as thread_count,
+        CASE 
+          WHEN COUNT(DISTINCT i.id) >= 10 THEN 'high'
+          WHEN COUNT(DISTINCT i.id) >= 5 THEN 'medium'
+          WHEN COUNT(DISTINCT i.id) >= 1 THEN 'low'
+          ELSE 'none'
+        END as priority
       FROM dashboards d
       LEFT JOIN teams t ON d.assigned_team_id = t.id
       LEFT JOIN issues i ON d.id = i.dashboard_id
@@ -143,7 +192,26 @@ router.get('/with-threads/count', authenticate, async (req, res) => {
       params.push(`%${search}%`, `%${search}%`);
     }
 
-    query += ` GROUP BY d.id, t.name ORDER BY ${sort_by === 'dashboard_name' ? 'd.dashboard_name' : 'd.updated_at'} ASC`;
+    query += ` GROUP BY d.id, t.name`;
+    
+    // Sort
+    const validSorts = ['dashboard_name', 'created_at', 'updated_at', 'priority', 'thread_count'];
+    let sortColumn = 'd.dashboard_name';
+    if (sort_by === 'priority') {
+      sortColumn = `CASE 
+        WHEN COUNT(DISTINCT i.id) >= 10 THEN 1
+        WHEN COUNT(DISTINCT i.id) >= 5 THEN 2
+        WHEN COUNT(DISTINCT i.id) >= 1 THEN 3
+        ELSE 4
+      END`;
+    } else if (sort_by === 'thread_count') {
+      sortColumn = 'COUNT(DISTINCT i.id)';
+    } else if (validSorts.includes(sort_by)) {
+      sortColumn = `d.${sort_by}`;
+    }
+    
+    const sortOrder = (sort_by === 'priority' || sort_by === 'thread_count') ? 'ASC' : 'ASC';
+    query += ` ORDER BY ${sortColumn} ${sortOrder}`;
 
     const result = await pool.query(query, params);
     res.json({ dashboards: result.rows });
