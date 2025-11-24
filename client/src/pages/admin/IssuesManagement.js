@@ -114,7 +114,12 @@ const IssuesManagement = () => {
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-semibold">Issues Management</h2>
+        <div>
+          <h2 className="text-xl font-semibold">Issues Management</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            ℹ️ Issues are automatically assigned to the dashboard's team when created. Status changes to "in_progress" when team members reply.
+          </p>
+        </div>
       </div>
 
       {/* Filters */}
@@ -227,11 +232,26 @@ const IssuesManagement = () => {
                   <div className="text-sm text-gray-500">{issue.submitted_by_name}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`text-xs px-2 py-1 rounded ${getStatusColor(issue.status)} text-white`}>
-                    {issue.status}
-                  </span>
+                  <div className="flex flex-col">
+                    <span className={`text-xs px-2 py-1 rounded ${getStatusColor(issue.status)} text-white inline-block`}>
+                      {issue.status === 'pending' ? 'Pending' : issue.status === 'in_progress' ? 'In Progress' : 'Complete'}
+                    </span>
+                    {issue.status === 'in_progress' && (
+                      <span className="text-xs text-gray-500 mt-1">Auto: Team replied</span>
+                    )}
+                    {issue.status === 'complete' && (
+                      <span className="text-xs text-gray-500 mt-1">Marked by team</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm text-gray-500">
+                    {issue.assigned_team_name || 'Unassigned'}
+                    {!issue.assigned_team_id && (
+                      <span className="text-xs text-gray-400 ml-1">(Auto-assigns from dashboard)</span>
+                    )}
+                  </div>
+                  {/* Manual override option (kept for edge cases) */}
                   <select
                     value={issue.assigned_team_id || ''}
                     onChange={(e) => {
@@ -239,9 +259,10 @@ const IssuesManagement = () => {
                         handleAssignTeam(issue.id, e.target.value);
                       }
                     }}
-                    className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-kra-red-500 focus:border-kra-red-500"
+                    className="text-xs border border-gray-300 rounded-md px-1 py-0.5 mt-1 focus:outline-none focus:ring-kra-red-500 focus:border-kra-red-500"
+                    title="Manual override (normally auto-assigned from dashboard)"
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">Change team...</option>
                     {teams.map((team) => (
                       <option key={team.id} value={team.id}>
                         {team.name}
@@ -250,7 +271,12 @@ const IssuesManagement = () => {
                   </select>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="text-sm text-gray-500">{issue.second_count || 1}</div>
+                  <div className="text-sm font-medium text-gray-900">
+                    {issue.calculated_priority || issue.priority || 1}
+                    {issue.second_count > 0 && (
+                      <span className="text-xs text-gray-500 ml-1">({issue.second_count} seconds)</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm text-gray-500">
@@ -263,23 +289,10 @@ const IssuesManagement = () => {
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                  {issue.status === 'complete' ? (
-                    <div className="text-center">
-                      <span className={`text-xs px-2 py-1 rounded ${getStatusColor(issue.status)} text-white`}>
-                        Complete
-                      </span>
-                      <p className="text-xs text-gray-500 mt-1">Marked by team</p>
-                    </div>
-                  ) : (
-                    <select
-                      value={issue.status}
-                      onChange={(e) => handleUpdateStatus(issue.id, e.target.value)}
-                      className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-kra-red-500 focus:border-kra-red-500"
-                    >
-                      <option value="pending">Pending</option>
-                      <option value="in_progress">In Progress</option>
-                    </select>
-                  )}
+                  {/* Status is now automatic - no manual control needed */}
+                  <div className="text-xs text-gray-500">
+                    Auto-managed
+                  </div>
                 </td>
               </tr>
             ))}

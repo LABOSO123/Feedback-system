@@ -40,14 +40,13 @@ router.post('/', authenticate, async (req, res) => {
 
     const issue = issueResult.rows[0];
 
-    // Business users can only reply to their own threads
-    if (req.user.role === 'business' && issue.submitted_by_user_id !== req.user.id) {
-      return res.status(403).json({ error: 'You can only reply to your own threads' });
+    // Block comments if thread is complete
+    if (issue.status === 'complete') {
+      return res.status(403).json({ error: 'Cannot add comments to completed threads' });
     }
 
+    // Business users can now reply to any thread (not just their own)
     // Data science users can reply to any thread
-    // Note: Status is automatically set to 'in_progress' when admin assigns the thread to a team
-    // No need to change status here - assignment handles it
 
     // Create comment
     const result = await pool.query(
@@ -62,37 +61,93 @@ router.post('/', authenticate, async (req, res) => {
     comment.user_name = userResult.rows[0].name;
     comment.user_role = userResult.rows[0].role;
 
-    // Create notification
-    const io = req.app.get('io');
-    if (req.user.role === 'data_science') {
-      // Notify the business user who created the thread
-      io.to(`user-${issue.submitted_by_user_id}`).emit('new-reply', {
-        issue_id: issue_id,
-        comment: comment
-      });
-      
-      // Create database notification
+    // Auto-change status to 'in_progress' when team member replies (if still pending)
+    if (req.user.role === 'data_science' && issue.assigned_team_id === req.user.team_id && issue.status === 'pending') {
       await pool.query(
-        'INSERT INTO notifications (user_id, issue_id, type, message) VALUES ($1, $2, $3, $4)',
-        [issue.submitted_by_user_id, issue_id, 'reply', `${req.user.name} replied to your thread`]
+        'UPDATE issues SET status = $1 WHERE id = $2',
+        ['in_progress', issue_id]
       );
-    } else {
-      // Notify all team members
-      if (issue.assigned_team_id) {
-        const teamMembers = await pool.query('SELECT id FROM users WHERE team_id = $1', [issue.assigned_team_id]);
-        teamMembers.rows.forEach(async (member) => {
-          io.to(`user-${member.id}`).emit('new-reply', {
+      issue.status = 'in_progress';
+    }
+
+    // Create notifications for all relevant users
+    try {
+      const io = req.app.get('io');
+      
+      if (req.user.role === 'data_science') {
+        // Notify the business user who created the thread
+        if (io) {
+          io.to(`user-${issue.submitted_by_user_id}`).emit('new-reply', {
             issue_id: issue_id,
             comment: comment
           });
+        }
+        
+        // Create database notification for thread creator
+        await pool.query(
+          'INSERT INTO notifications (user_id, issue_id, type, message) VALUES ($1, $2, $3, $4)',
+          [issue.submitted_by_user_id, issue_id, 'reply', `${req.user.name} replied to your thread`]
+        );
+
+        // Notify other team members
+        if (issue.assigned_team_id) {
+          const teamMembers = await pool.query(
+            'SELECT id FROM users WHERE team_id = $1 AND id != $2',
+            [issue.assigned_team_id, req.user.id]
+          );
           
-          // Create database notification
+          for (const member of teamMembers.rows) {
+            if (io) {
+              io.to(`user-${member.id}`).emit('new-reply', {
+                issue_id: issue_id,
+                comment: comment
+              });
+            }
+            
+            await pool.query(
+              'INSERT INTO notifications (user_id, issue_id, type, message) VALUES ($1, $2, $3, $4)',
+              [member.id, issue_id, 'reply', `${req.user.name} replied to a thread`]
+            );
+          }
+        }
+      } else if (req.user.role === 'business') {
+        // Business user replied - notify assigned team
+        if (issue.assigned_team_id) {
+          const teamMembers = await pool.query('SELECT id FROM users WHERE team_id = $1', [issue.assigned_team_id]);
+          
+          for (const member of teamMembers.rows) {
+            if (io) {
+              io.to(`user-${member.id}`).emit('new-reply', {
+                issue_id: issue_id,
+                comment: comment
+              });
+            }
+            
+            await pool.query(
+              'INSERT INTO notifications (user_id, issue_id, type, message) VALUES ($1, $2, $3, $4)',
+              [member.id, issue_id, 'reply', `${req.user.name} replied to a thread`]
+            );
+          }
+        }
+        
+        // Also notify the original thread creator if different user
+        if (issue.submitted_by_user_id !== req.user.id) {
+          if (io) {
+            io.to(`user-${issue.submitted_by_user_id}`).emit('new-reply', {
+              issue_id: issue_id,
+              comment: comment
+            });
+          }
+          
           await pool.query(
             'INSERT INTO notifications (user_id, issue_id, type, message) VALUES ($1, $2, $3, $4)',
-            [member.id, issue_id, 'reply', `${req.user.name} replied to a thread`]
+            [issue.submitted_by_user_id, issue_id, 'reply', `${req.user.name} replied to a thread you're following`]
           );
-        });
+        }
       }
+    } catch (notifError) {
+      console.error('Error creating notifications:', notifError);
+      // Don't fail the request if notifications fail
     }
 
     // Record leaderboard activity for data science users

@@ -89,7 +89,8 @@ router.delete('/users/:id', async (req, res) => {
   }
 });
 
-// Assign issue to team
+// Assign issue to team (DEPRECATED - Assignment is now automatic based on dashboard team)
+// Kept for admin visibility/override if needed
 router.post('/issues/:id/assign-team', async (req, res) => {
   try {
     const { team_id } = req.body;
@@ -104,6 +105,8 @@ router.post('/issues/:id/assign-team', async (req, res) => {
       return res.status(404).json({ error: 'Issue not found' });
     }
 
+    // Note: Assignment is now automatic when issue is created (based on dashboard team)
+    // This endpoint is kept for manual override if needed
     // Automatically change status to 'in_progress' when assigned (if it was pending)
     const newStatus = currentIssue.rows[0].status === 'pending' ? 'in_progress' : currentIssue.rows[0].status;
 
@@ -143,7 +146,8 @@ router.post('/issues/:id/assign-team', async (req, res) => {
   }
 });
 
-// Assign issue to user
+// Assign issue to user (DEPRECATED - Assignment is now automatic based on dashboard team)
+// Kept for admin visibility/override if needed
 router.post('/issues/:id/assign-user', async (req, res) => {
   try {
     const { user_id } = req.body;
@@ -162,8 +166,9 @@ router.post('/issues/:id/assign-user', async (req, res) => {
     const userResult = await pool.query('SELECT team_id FROM users WHERE id = $1', [user_id]);
     const userTeamId = userResult.rows[0]?.team_id;
 
+    // Note: Assignment is now automatic when issue is created (based on dashboard team)
+    // This endpoint is kept for manual override if needed
     // Automatically change status to 'in_progress' when assigned (if it was pending)
-    // Also assign to the user's team if they have one
     const newStatus = currentIssue.rows[0].status === 'pending' ? 'in_progress' : currentIssue.rows[0].status;
     const assignedTeamId = userTeamId || currentIssue.rows[0].assigned_team_id;
 

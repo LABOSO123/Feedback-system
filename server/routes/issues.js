@@ -15,7 +15,8 @@ router.get('/', authenticate, async (req, res) => {
         c.chart_name,
         u.name as submitted_by_name,
         t.name as assigned_team_name,
-        COUNT(DISTINCT ts.user_id) as second_count
+        COUNT(DISTINCT ts.user_id) as second_count,
+        (1 + COUNT(DISTINCT ts.user_id)) as calculated_priority
       FROM issues i
       LEFT JOIN dashboards d ON i.dashboard_id = d.id
       LEFT JOIN charts c ON i.chart_id = c.id
@@ -27,11 +28,7 @@ router.get('/', authenticate, async (req, res) => {
     const params = [];
     let paramCount = 1;
 
-    // Role-based filtering
-    if (req.user.role === 'business') {
-      query += ` AND i.submitted_by_user_id = $${paramCount++}`;
-      params.push(req.user.id);
-    }
+    // Business users can now see all threads (not just their own)
     // Data science users can see all issues (no team restriction)
     // They can filter by assigned_team_id if needed using the assigned_team_id query param
 
@@ -61,11 +58,21 @@ router.get('/', authenticate, async (req, res) => {
 
     query += ` GROUP BY i.id, d.dashboard_name, c.chart_name, u.name, t.name`;
 
-    // Sort
+    // Sort - priority is calculated from seconds count
     const validSorts = ['created_at', 'updated_at', 'status', 'priority'];
-    const sortColumn = validSorts.includes(sort_by) ? sort_by : 'updated_at';
-    const sortOrder = sort_by === 'priority' ? 'DESC' : 'DESC';
-    query += ` ORDER BY i.${sortColumn} ${sortOrder}`;
+    let sortColumn = 'i.updated_at';
+    let sortOrder = 'DESC';
+    
+    if (sort_by === 'priority') {
+      // Sort by calculated priority (1 + second_count)
+      sortColumn = '(1 + COUNT(DISTINCT ts.user_id))';
+      sortOrder = 'DESC';
+    } else if (validSorts.includes(sort_by)) {
+      sortColumn = `i.${sort_by}`;
+      sortOrder = sort_by === 'created_at' || sort_by === 'updated_at' ? 'DESC' : 'ASC';
+    }
+    
+    query += ` ORDER BY ${sortColumn} ${sortOrder}`;
 
     const result = await pool.query(query, params);
     res.json({ issues: result.rows });
@@ -265,23 +272,52 @@ router.post('/', authenticate, authorize('business'), async (req, res) => {
       return res.status(400).json({ error: 'Dashboard ID and description are required' });
     }
 
+    // Get dashboard to find assigned team
+    const dashboardResult = await pool.query(
+      'SELECT assigned_team_id, dashboard_name FROM dashboards WHERE id = $1',
+      [dashboard_id]
+    );
+
+    const assigned_team_id = dashboardResult.rows.length > 0 
+      ? dashboardResult.rows[0].assigned_team_id 
+      : null;
+    
+    const dashboard_name = dashboardResult.rows.length > 0 
+      ? dashboardResult.rows[0].dashboard_name 
+      : 'Unknown';
+
+    // Auto-assign to dashboard's team if it exists
+    // Status starts as 'pending', will change to 'in_progress' when team member replies
     const result = await pool.query(
-      'INSERT INTO issues (dashboard_id, chart_id, submitted_by_user_id, subject, description, attachment_url, status, priority) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [dashboard_id, chart_id || null, req.user.id, subject || null, description, attachment_url || null, 'pending', 1]
+      'INSERT INTO issues (dashboard_id, chart_id, submitted_by_user_id, assigned_team_id, subject, description, attachment_url, status, priority) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
+      [dashboard_id, chart_id || null, req.user.id, assigned_team_id, subject || null, description, attachment_url || null, 'pending', 1]
     );
 
     const issue = result.rows[0];
 
-    // Priority is calculated dynamically based on thread count, no need to update here
-    // The priority will be calculated in the dashboard/chart queries
-
-    // Create notification for assigned team if exists
+    // Create notifications for assigned team if exists
     if (issue.assigned_team_id) {
-      const io = req.app.get('io');
-      const teamMembers = await pool.query('SELECT id FROM users WHERE team_id = $1', [issue.assigned_team_id]);
-      teamMembers.rows.forEach(member => {
-        io.to(`user-${member.id}`).emit('new-issue', { issue });
-      });
+      try {
+        const io = req.app.get('io');
+        const teamMembers = await pool.query('SELECT id FROM users WHERE team_id = $1', [issue.assigned_team_id]);
+        
+        // Use for...of loop for proper async handling
+        for (const member of teamMembers.rows) {
+          // Real-time notification
+          if (io) {
+            io.to(`user-${member.id}`).emit('new-issue', { issue });
+          }
+          
+          // Database notification
+          await pool.query(
+            'INSERT INTO notifications (user_id, issue_id, type, message) VALUES ($1, $2, $3, $4)',
+            [member.id, issue.id, 'new_issue', `New thread created: ${subject || 'No subject'} on dashboard ${dashboard_name}`]
+          );
+        }
+      } catch (notifError) {
+        console.error('Error creating notifications:', notifError);
+        // Don't fail the request if notifications fail
+      }
     }
 
     res.status(201).json({ issue });
@@ -317,11 +353,66 @@ router.post('/:id/second', authenticate, authorize('business'), async (req, res)
     // Add second
     await pool.query('INSERT INTO thread_seconds (issue_id, user_id) VALUES ($1, $2)', [req.params.id, req.user.id]);
 
-    // Update priority
-    const secondCount = await pool.query('SELECT COUNT(*) as count FROM thread_seconds WHERE issue_id = $1', [req.params.id]);
-    await pool.query('UPDATE issues SET priority = $1 WHERE id = $2', [parseInt(secondCount.rows[0].count), req.params.id]);
+    // Update priority based on number of seconds (including the creator = 1 + seconds)
+    const secondCount = await pool.query(
+      'SELECT COUNT(*) as count FROM thread_seconds WHERE issue_id = $1',
+      [req.params.id]
+    );
+    // Priority = 1 (creator) + number of seconds
+    const newPriority = parseInt(secondCount.rows[0].count) + 1;
+    await pool.query('UPDATE issues SET priority = $1 WHERE id = $2', [newPriority, req.params.id]);
 
-    res.json({ message: 'Thread seconded successfully' });
+    // Notify thread creator and assigned team about the second
+    try {
+      const issueResult = await pool.query(
+        'SELECT submitted_by_user_id, assigned_team_id FROM issues WHERE id = $1',
+        [req.params.id]
+      );
+      
+      if (issueResult.rows.length > 0) {
+        const issue = issueResult.rows[0];
+        const io = req.app.get('io');
+        
+        // Notify thread creator
+        if (io) {
+          io.to(`user-${issue.submitted_by_user_id}`).emit('thread-seconded', {
+            issue_id: req.params.id,
+            seconded_by: req.user.name
+          });
+        }
+        
+        await pool.query(
+          'INSERT INTO notifications (user_id, issue_id, type, message) VALUES ($1, $2, $3, $4)',
+          [issue.submitted_by_user_id, req.params.id, 'thread_seconded', `${req.user.name} seconded your thread (Priority: ${newPriority})`]
+        );
+        
+        // Notify assigned team
+        if (issue.assigned_team_id) {
+          const teamMembers = await pool.query(
+            'SELECT id FROM users WHERE team_id = $1 AND id != $2',
+            [issue.assigned_team_id, issue.submitted_by_user_id]
+          );
+          
+          for (const member of teamMembers.rows) {
+            if (io) {
+              io.to(`user-${member.id}`).emit('thread-seconded', {
+                issue_id: req.params.id,
+                seconded_by: req.user.name
+              });
+            }
+            
+            await pool.query(
+              'INSERT INTO notifications (user_id, issue_id, type, message) VALUES ($1, $2, $3, $4)',
+              [member.id, req.params.id, 'thread_seconded', `Thread seconded by ${req.user.name} (Priority: ${newPriority})`]
+            );
+          }
+        }
+      }
+    } catch (notifError) {
+      console.error('Error creating notifications for thread second:', notifError);
+    }
+
+    res.json({ message: 'Thread seconded successfully', priority: newPriority });
   } catch (error) {
     console.error('Second thread error:', error);
     res.status(500).json({ error: 'Server error' });
